@@ -2129,14 +2129,14 @@ static BinOpr token2binop(LexToken tok)
   case TK_shr:	return OPR_BSHR;
   case TK_sar:	return OPR_BSAR;
   case TK_concat: return OPR_CONCAT;
-  case TK_ne:	return OPR_NE;
+  case TK_ne:	case TK_ne_: return OPR_NE;
   case TK_eq:	return OPR_EQ;
   case '<':	return OPR_LT;
   case TK_le:	return OPR_LE;
   case '>':	return OPR_GT;
   case TK_ge:	return OPR_GE;
-  case TK_and:	return OPR_AND;
-  case TK_or:	return OPR_OR;
+  case TK_and:	case TK_and_: return OPR_AND;
+  case TK_or:	case TK_or_: return OPR_OR;
   case TK_coal:	return OPR_COAL;
   default:	return OPR_NOBINOPR;
   }
@@ -2166,7 +2166,7 @@ static BinOpr expr_binop(LexState *ls, ExpDesc *v, uint32_t limit, int nocolon);
 static void expr_unop(LexState *ls, ExpDesc *v, int nocolon)
 {
   BCOp op;
-  if (ls->tok == TK_not) {
+  if (ls->tok == TK_not || ls->tok == '!') {
     op = BC_NOT;
   } else if (ls->tok == '-') {
     op = BC_UNM;
@@ -2269,6 +2269,7 @@ static int parse_compound(LexState *ls, ExpDesc *e)
   */
   if (opr > OPR_NE || opr == OPR_POW) return 0;  /* ORDER OPR */
   if (opr == OPR_NE) {
+    if (ls->tok != TK_ne) lj_lex_error(ls, '!', LJ_ERR_XTOKEN, "=");
     opr = OPR_BXOR;
   } else {  /* Can't use lex_check() here. Only allow '+=', not '+ ='. */
     if (ls->c != '=') err_token(ls, '=');
@@ -2277,10 +2278,16 @@ static int parse_compound(LexState *ls, ExpDesc *e)
   lj_lex_next(ls);  /* Skip '=' or '~=' aka TOK_ne. */
   fs = ls->fs;
   estore = *e;
+  if (e->k == VINDEXED) {  /* Preserve the base and key for the store. */
+    BCReg freg = fs->freereg;
+    expr_discharge(fs, e);
+    fs->freereg = freg;  /* Undo bcreg_free of info and/or aux. */
+  }
   if (opr == OPR_CONCAT) expr_tonextreg(fs, e); else expr_toanyreg(fs, e);
   expr(ls, &v, 0);
   bcemit_binop(fs, opr, e, &v);
   bcemit_store(fs, &estore, e);
+  /* Don't bother to free VINDEXED info+aux. Done by parse_chunk(). */
   return 1;
 }
 
